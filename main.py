@@ -1,90 +1,70 @@
+import cv2
+import time
 import os
-import numpy as np
-from PIL import Image
+import subprocess
+import threading
+
+# Crear la carpeta si no existe
+if not os.path.exists('./Dataset/imagenes'):
+    os.makedirs('./Dataset/imagenes')
+
+capturando = False  # Variable de estado para saber si está capturando
 
 
-input_folder = "Dataset/"
-output_folder = "Dataset_procesado/"
+def capturar_imagenes():
+    global capturando  # Usamos la variable global
+    cap = cv2.VideoCapture(0)
 
-# Definir clases
-clases = ['crema', 'jalapenos', 'leche', 'maizena', 'pelon']
+    if not cap.isOpened():
+        print("No se pudo acceder a la cámara.")
+        return
 
+    # Captura de imágenes cada 0.5 segundos
+    counter = 0
+    while capturando:
+        ret, frame = cap.read()
+        if not ret:
+            print("No se pudo leer el frame.")
+            break
 
-def to_grayscale(image):
-    image = image.convert('RGB')
+        # Guardar la imagen
+        file_name = f"./Dataset/imagenes/imagen_{counter}.jpg"
+        cv2.imwrite(file_name, frame)
+        print(f"Imagen guardada: {file_name}")
 
-    width, height = image.size
-    pixels = image.load()
+        # Incrementar el contador y esperar 0.5 segundos
+        counter += 1
+        time.sleep(0.5)
 
-    gray_image = Image.new('L', (width, height))
-    gray_pixels = gray_image.load()
-
-    for i in range(width):
-        for j in range(height):
-            r, g, b = image.getpixel((i, j))
-            gray_pixels[i, j] = int((r + g + b) / 3)
-
-    return gray_image
-
-
-def apply_threshold(image, threshold=128):
-    width, height = image.size
-    pixels = image.load()
-
-    for i in range(width):
-        for j in range(height):
-            pixel = pixels[i, j]
-            if pixel < threshold:
-                pixels[i, j] = 0
-            else:
-                pixels[i, j] = 255
-
-    return image
+    cap.release()  # Liberar la cámara, no es necesario cv2.destroyAllWindows()
 
 
-def flood_fill(image, x, y, visited, width, height):
-    stack = [(x, y)]
-    while stack:
-        cx, cy = stack.pop()
-
-        if cx < 0 or cx >= width or cy < 0 or cy >= height or (cx, cy) in visited:
-            continue
-
-        visited.add((cx, cy))
-
-        neighbors = [(-1, 0), (1, 0), (0, -1), (0, 1),
-                     (-1, -1), (-1, 1), (1, -1), (1, 1)]
-        for dx, dy in neighbors:
-            stack.append((cx + dx, cy + dy))
+def ejecutar_procesamiento():
+    # Ejecuta el script procesamiento.py
+    print("Ejecutando el script de procesamiento...")
+    # Asumiendo que el archivo se llama procesamiento.py
+    subprocess.run(["python", "procesamiento.py"])
 
 
-for clase in clases:
-    input_class_path = os.path.join(input_folder, clase)
-    output_class_path = os.path.join(output_folder, clase + '_pros')
+def main():
+    global capturando
+    print("Presiona Enter para comenzar a capturar imágenes.")
+    while True:
+        input()  # Espera por una tecla Enter para comenzar o detener
+        if not capturando:
+            print("Captura iniciada.")
+            capturando = True
+            # Usamos threading para que la captura no bloquee la interfaz
+            captura_thread = threading.Thread(target=capturar_imagenes)
+            captura_thread.start()
+        else:
+            print("Captura detenida.")
+            capturando = False
+            captura_thread.join()  # Espera que termine el hilo antes de continuar
+            print("Captura detenida. Ejecutando procesamiento de imágenes...")
+            ejecutar_procesamiento()
+            print("Procesamiento completado.")
 
-    if not os.path.exists(output_class_path):
-        os.makedirs(output_class_path)
 
-    for filename in os.listdir(input_class_path):
-        if filename.endswith('.png') or filename.endswith('.jpg') or filename.endswith('.jpeg'):
-            img_path = os.path.join(input_class_path, filename)
-            image = Image.open(img_path)
-
-            gray_image = to_grayscale(image)
-
-            binary_image = apply_threshold(gray_image, threshold=128)
-
-            width, height = binary_image.size
-            pixels = binary_image.load()
-            visited = set()
-
-            for i in range(width):
-                for j in range(height):
-                    if pixels[i, j] == 255 and (i, j) not in visited:
-                        flood_fill(binary_image, i, j, visited, width, height)
-
-            output_path = os.path.join(
-                output_class_path, f"{os.path.splitext(filename)[0]}_pros.png")
-            binary_image.save(output_path)
-
-print("Procesamiento completado.")
+if __name__ == "__main__":
+    main()
