@@ -1,70 +1,86 @@
-import cv2
-import time
 import os
-import subprocess
+import time
 import threading
-
-# Crear la carpeta si no existe
-if not os.path.exists('./Dataset/imagenes'):
-    os.makedirs('./Dataset/imagenes')
-
-capturando = False  # Variable de estado para saber si está capturando
+from utils import crear_directorios
+from camara import CapturadorImagenes
+from procesamiento import ProcesadorImagenes
+from caracteristicas import ExtractorCaracteristicas
 
 
-def capturar_imagenes():
-    global capturando  # Usamos la variable global
-    cap = cv2.VideoCapture(0)
+class SistemaVision:
+    def __init__(self):
+        crear_directorios()
+        self.capturador = CapturadorImagenes()
+        self.procesador = ProcesadorImagenes()
+        self.extractor = ExtractorCaracteristicas()
+        self.ejecutando = False
 
-    if not cap.isOpened():
-        print("No se pudo acceder a la cámara.")
-        return
+    def mostrar_menu(self):
+        print("\n=== SISTEMA DE VISIÓN POR COMPUTADORA ===")
+        print("1. Procesar dataset completo")
+        print("2. Capturar y procesar imágenes en tiempo real")
+        print("3. Extraer características de dataset")
+        print("4. Extraer características de capturas")
+        print("5. Salir")
 
-    # Captura de imágenes cada 0.5 segundos
-    counter = 0
-    while capturando:
-        ret, frame = cap.read()
-        if not ret:
-            print("No se pudo leer el frame.")
-            break
+    def procesar_dataset(self):
+        print("\n[+] Procesando dataset...")
+        self.procesador.procesar_directorio('./datasets', './salidas/dataset')
+        print("[+] Dataset procesado guardado en 'salidas/dataset'")
 
-        # Guardar la imagen
-        file_name = f"./Dataset/imagenes/imagen_{counter}.jpg"
-        cv2.imwrite(file_name, frame)
-        print(f"Imagen guardada: {file_name}")
+    def procesar_capturas(self):
+        print("\n[+] Iniciando captura en tiempo real (Presione 'q' para detener)")
+        self.ejecutando = True
 
-        # Incrementar el contador y esperar 0.5 segundos
-        counter += 1
-        time.sleep(0.5)
+        def capturar():
+            while self.ejecutando:
+                self.capturador.capturar()
+                time.sleep(0.5)  # 2 FPS
 
-    cap.release()  # Liberar la cámara, no es necesario cv2.destroyAllWindows()
+        hilo_captura = threading.Thread(target=capturar)
+        hilo_captura.start()
 
+        input()  # Esperar entrada para detener
+        self.ejecutando = False
+        hilo_captura.join()
 
-def ejecutar_procesamiento():
-    # Ejecuta el script procesamiento.py
-    print("Ejecutando el script de procesamiento...")
-    # Asumiendo que el archivo se llama procesamiento.py
-    subprocess.run(["python", "procesamiento.py"])
+        print("\n[+] Procesando capturas...")
+        self.procesador.procesar_directorio('capturas', './salidas/camara')
+        print("[+] Capturas procesadas guardadas en 'salidas/camara'")
 
+    def extraer_features_dataset(self):
+        print("\n[+] Extrayendo características del dataset...")
+        # Ahora pasamos la ruta raíz del dataset (que contiene las carpetas por clase)
+        self.extractor.extraer_de_directorio(
+            'datasets', 'features/dataset_features.csv')
+        print("[+] Características guardadas en 'features/dataset_features.csv'")
 
-def main():
-    global capturando
-    print("Presiona Enter para comenzar a capturar imágenes.")
-    while True:
-        input()  # Espera por una tecla Enter para comenzar o detener
-        if not capturando:
-            print("Captura iniciada.")
-            capturando = True
-            # Usamos threading para que la captura no bloquee la interfaz
-            captura_thread = threading.Thread(target=capturar_imagenes)
-            captura_thread.start()
-        else:
-            print("Captura detenida.")
-            capturando = False
-            captura_thread.join()  # Espera que termine el hilo antes de continuar
-            print("Captura detenida. Ejecutando procesamiento de imágenes...")
-            ejecutar_procesamiento()
-            print("Procesamiento completado.")
+    def extraer_features_capturas(self):
+        print("\n[+] Extrayendo características de capturas...")
+        self.extractor.extraer_de_directorio(
+            './salidas/camara', './features/capturas_features.csv')
+        print("[+] Características guardadas en 'features/capturas_features.csv'")
+
+    def ejecutar(self):
+        while True:
+            self.mostrar_menu()
+            opcion = input("Seleccione una opción: ")
+
+            if opcion == '1':
+                self.procesar_dataset()
+            elif opcion == '2':
+                self.procesar_capturas()
+            elif opcion == '3':
+                self.extraer_features_dataset()
+            elif opcion == '4':
+                self.extraer_features_capturas()
+            elif opcion == '5':
+                print("\n[+] Saliendo del sistema...")
+                break
+            else:
+                print("\n[!] Opción no válida")
 
 
 if __name__ == "__main__":
-    main()
+    sistema = SistemaVision()
+    sistema.ejecutar()
