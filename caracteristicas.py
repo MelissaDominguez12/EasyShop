@@ -3,12 +3,10 @@ import csv
 import numpy as np
 import pytesseract
 import re
-from PIL import Image, ImageDraw
-
+from PIL import Image, ImageOps
 
 def imagen_a_array(imagen):
     return np.array(imagen.convert("L"))
-
 
 def aplicar_kernel(imagen, kernel):
     kh, kw = kernel.shape
@@ -21,7 +19,6 @@ def aplicar_kernel(imagen, kernel):
             resultado[i, j] = np.sum(region * kernel)
     return resultado
 
-
 class ExtractorCaracteristicas:
     def __init__(self):
         self.kernel_gaussiano = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]]) / 16
@@ -32,25 +29,21 @@ class ExtractorCaracteristicas:
         open(self.resultados_ocr_path, "w", encoding="utf-8").close()
 
     def _preprocesar_ocr_para_tesseract(self, imagen):
-        array_img = imagen_a_array(imagen)
-        ecualizada = aplicar_kernel(array_img, self.kernel_gaussiano)
-        binarizada = np.where(ecualizada > 127, 255, 0).astype(np.uint8)
-        return Image.fromarray(binarizada)
-
-    def _guardar_debug_ocr(self, imagen, nombre):
-        ruta = f"salidas/ocr/debug_ocr_{nombre}"
-        imagen.save(ruta)
-        print(f"[+] Imagen OCR guardada en: {ruta}")
+        gris = imagen.convert("L")
+        gris = ImageOps.autocontrast(gris)
+        arr = np.array(gris)
+        umbral = arr.mean()
+        binaria = (arr > umbral).astype(np.uint8) * 255
+        binaria_img = Image.fromarray(binaria)
+        binaria_img = binaria_img.resize((binaria_img.width * 2, binaria_img.height * 2), Image.LANCZOS)
+        return binaria_img
 
     def _realizar_ocr(self, imagen_original, nombre_archivo):
         imagen_proc = self._preprocesar_ocr_para_tesseract(imagen_original)
-        config = r'--psm 6'
+        config = '--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
         texto = pytesseract.image_to_string(imagen_proc, lang='eng', config=config).strip()
         texto_limpio = re.sub(r'[^A-Z0-9 ]', '', texto.upper())
         caracteres = len(texto_limpio)
-
-        if caracteres > 0:
-            self._guardar_debug_ocr(imagen_proc, nombre_archivo)
 
         with open(self.resultados_ocr_path, "a", encoding="utf-8") as f:
             f.write(f"{nombre_archivo}: {caracteres} → Texto: \"{texto_limpio or 'no'}\"\n")
@@ -90,11 +83,12 @@ class ExtractorCaracteristicas:
     def _preprocesar_para_caracteristicas(self, imagen):
         array_img = imagen_a_array(imagen)
         suavizada = aplicar_kernel(array_img, self.kernel_gaussiano)
+        suavizada_u8 = suavizada.astype(np.uint8)
 
-        hist, _ = np.histogram(suavizada.flatten(), 256, [0, 256])
+        hist, _ = np.histogram(suavizada_u8.flatten(), 256, [0, 256])
         cdf = hist.cumsum()
         cdf_normalized = (cdf - cdf.min()) * 255 / (cdf.max() - cdf.min())
-        ecualizada = cdf_normalized[suavizada.astype(np.uint8)]
+        ecualizada = cdf_normalized[suavizada_u8]
 
         grad_x = aplicar_kernel(ecualizada, self.kernel_sobel_x)
         grad_y = aplicar_kernel(ecualizada, self.kernel_sobel_y)
@@ -104,6 +98,7 @@ class ExtractorCaracteristicas:
     def extraer_de_imagen(self, imagen_path, clase):
         try:
             imagen = Image.open(imagen_path).convert("RGB")
+            imagen.thumbnail((300, 300))
             nombre_archivo = os.path.basename(imagen_path)
             img_proc = self._preprocesar_para_caracteristicas(imagen)
 
@@ -120,7 +115,7 @@ class ExtractorCaracteristicas:
             contraste = (np.mean(np.abs(np.diff(img_proc, axis=0))) +
                          np.mean(np.abs(np.diff(img_proc, axis=1)))) / 2
 
-            binaria = np.where(img_proc > np.mean(img_proc), 1, 0)
+            binaria = (img_proc > np.mean(img_proc)).astype(np.uint8)
             momentos = self._calcular_momentos_hu(binaria)
             area = np.sum(binaria)
             perimetro = np.sum(binaria[:, :-1] != binaria[:, 1:]) + \
@@ -155,15 +150,11 @@ class ExtractorCaracteristicas:
                 ])
 
             contador = 0
-            total_archivos = 0
-
-            for clase in os.listdir(directorio_raiz):
-                clase_dir = os.path.join(directorio_raiz, clase)
-                if os.path.isdir(clase_dir):
-                    total_archivos += sum(
-                        1 for f in os.listdir(clase_dir)
-                        if f.lower().endswith(('.png', '.jpg', '.jpeg'))
-                    )
+            total_archivos = sum(
+                1 for clase in os.listdir(directorio_raiz)
+                for f in os.listdir(os.path.join(directorio_raiz, clase))
+                if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+            )
 
             for clase in os.listdir(directorio_raiz):
                 clase_dir = os.path.join(directorio_raiz, clase)
